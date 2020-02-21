@@ -71,7 +71,6 @@ func New(configuration Configuration) (*DBStorage, error) {
 	case "sqlite3":
 		dataSource = configuration.SQLiteDataSource
 	case "postgres":
-
 		dataSource = fmt.Sprintf(
 			"postgresql://%v:%v@%v:%v/%v?%v",
 			configuration.PGUsername,

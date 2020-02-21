@@ -27,6 +27,7 @@ import (
 
 	"github.com/RedHatInsights/insights-results-aggregator/broker"
 	"github.com/RedHatInsights/insights-results-aggregator/consumer"
+	"github.com/RedHatInsights/insights-results-aggregator/producer"
 	"github.com/RedHatInsights/insights-results-aggregator/storage"
 	"github.com/RedHatInsights/insights-results-aggregator/tests/helpers"
 )
@@ -272,4 +273,105 @@ func TestProcessingMessageWithWrongDateFormat(t *testing.T) {
 			"Expected time.ParseError error because date format is wrong. Got %+v", err,
 		))
 	}
+}
+
+func TestNewConsumerWithMockedKafkaOK(t *testing.T) {
+	helpers.RunTestWithTimeout(t, func(t *testing.T) {
+		mockedBroker := broker.MustNewMockBroker(t)
+		defer mockedBroker.Close()
+
+		_, err := consumer.New(mockedBroker.Configuration, helpers.MustGetMockStorage(t, true))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}, 5*time.Second)
+}
+
+func TestNewConsumerWithMockedKafkaNonExistingTopicError(t *testing.T) {
+	helpers.RunTestWithTimeout(t, func(t *testing.T) {
+		mockedBroker := broker.MustNewMockBroker(t)
+		defer mockedBroker.Close()
+
+		_, err := consumer.New(broker.Configuration{
+			Address:      mockedBroker.Configuration.Address,
+			Topic:        "non existing topic",
+			Group:        mockedBroker.Configuration.Group,
+			Enabled:      mockedBroker.Configuration.Enabled,
+			OrgWhitelist: mockedBroker.Configuration.OrgWhitelist,
+		}, helpers.MustGetMockStorage(t, true))
+		if err == nil {
+			t.Fatal(fmt.Errorf("Error about wrong topic expected, got %v", err))
+		}
+	}, 5*time.Second)
+}
+
+func TestStartConsumerWithMockedKafkaOK(t *testing.T) {
+	helpers.RunTestWithTimeout(t, func(t *testing.T) {
+		mockedBroker := broker.MustNewMockBroker(t)
+		defer mockedBroker.Close()
+
+		c, err := consumer.New(mockedBroker.Configuration, helpers.MustGetMockStorage(t, true))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		go func() {
+			err = c.Start()
+			if err != nil {
+				panic(err)
+			}
+		}()
+
+		err = c.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}, 5*time.Second)
+}
+
+func TestConsumerProcessMessageWithMockedKafkaOK(t *testing.T) {
+	helpers.RunTestWithTimeout(t, func(t *testing.T) {
+		mockedBroker := broker.MustNewMockBroker(t)
+		// defer mockedBroker.Close()
+
+		c, err := consumer.New(mockedBroker.Configuration, helpers.MustGetMockStorage(t, true))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		go func() {
+			err = c.Start()
+			if err != nil {
+				panic(err)
+			}
+		}()
+
+		fmt.Println(mockedBroker.Configuration.Address)
+
+		/*_, _, err = producer.ProduceMessage(mockedBroker.Configuration, `{
+			"OrgID":1,
+			"ClusterName":"aaaaaaaa-bbbb-cccc-dddd-000000000000",
+			"Report":"{}"
+		}`)*/
+		_, _, err = producer.ProduceMessage(mockedBroker.Configuration, `asdfasdf`)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		time.Sleep(99999 * time.Second)
+
+		return
+
+		for {
+			if c.GetNumberOfConsumedMessages() > 0 {
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+
+		err = c.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}, 100000*time.Second)
 }

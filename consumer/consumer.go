@@ -42,10 +42,12 @@ type Consumer interface {
 
 // KafkaConsumer in an implementation of Consumer interface
 type KafkaConsumer struct {
-	Configuration     broker.Configuration
-	Consumer          sarama.Consumer
-	PartitionConsumer sarama.PartitionConsumer
-	Storage           storage.Storage
+	Configuration            broker.Configuration
+	Consumer                 sarama.Consumer
+	PartitionConsumer        sarama.PartitionConsumer
+	Storage                  storage.Storage
+	stopSignal               chan bool
+	numberOfConsumedMessages uint64
 }
 
 type incomingMessage struct {
@@ -78,6 +80,7 @@ func New(brokerCfg broker.Configuration, storage storage.Storage) (*KafkaConsume
 		Consumer:          c,
 		PartitionConsumer: partitionConsumer,
 		Storage:           storage,
+		stopSignal:        make(chan bool),
 	}
 	return consumer, nil
 }
@@ -121,14 +124,22 @@ func organizationAllowed(consumer KafkaConsumer, orgID types.OrgID) bool {
 // Start starts consumer
 func (consumer KafkaConsumer) Start() error {
 	log.Printf("Consumer has been started, waiting for messages send to topic %s\n", consumer.Configuration.Topic)
-	consumed := 0
 	for {
-		msg := <-consumer.PartitionConsumer.Messages()
-		err := consumer.ProcessMessage(msg)
-		if err != nil {
-			log.Println("Error processing message consumed from Kafka:", err)
+		select {
+		case <-consumer.stopSignal:
+			return nil
+		case msg := <-consumer.PartitionConsumer.Messages():
+			if msg == nil {
+				continue
+			}
+
+			err := consumer.ProcessMessage(msg)
+			if err != nil {
+				log.Println("Error processing message consumed from Kafka:", err)
+			}
+
+			consumer.numberOfConsumedMessages++
 		}
-		consumed++
 	}
 }
 
@@ -180,6 +191,11 @@ func (consumer KafkaConsumer) Close() error {
 	if err != nil {
 		return err
 	}
-	err = consumer.Consumer.Close()
-	return err
+
+	return consumer.Consumer.Close()
+}
+
+// GetNumberOfConsumedMessages returns number of consumed messages since creating KafkaConsumer obj
+func (consumer KafkaConsumer) GetNumberOfConsumedMessages() uint64 {
+	return consumer.numberOfConsumedMessages
 }

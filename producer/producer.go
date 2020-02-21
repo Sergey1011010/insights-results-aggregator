@@ -26,14 +26,26 @@ import (
 
 // ProduceMessage produces message to selected topic
 func ProduceMessage(brokerCfg broker.Configuration, message string) (partition int32, offset int64, errout error) {
+	/*config := sarama.NewConfig()
+	config.ChannelBufferSize = 1
+	// config.Version = sarama.V0_10_0_1
+	config.Producer.Return.Successes = true*/
+	/*config := sarama.NewConfig()
+	config.ChannelBufferSize = 1
+	config.Version = sarama.V0_10_0_1
+	config.Producer.Return.Successes = true*/
+
 	producer, err := sarama.NewSyncProducer([]string{brokerCfg.Address}, nil)
 	if err != nil {
 		log.Print(err)
+		panic(err)
 		return -1, -1, err
 	}
+
 	defer func() {
 		if err := producer.Close(); err != nil {
 			log.Print(err)
+
 			partition = -1
 			offset = -1
 			errout = err
@@ -41,6 +53,7 @@ func ProduceMessage(brokerCfg broker.Configuration, message string) (partition i
 	}()
 
 	msg := &sarama.ProducerMessage{Topic: brokerCfg.Topic, Value: sarama.StringEncoder(message)}
+
 	partition, offset, err = producer.SendMessage(msg)
 	if err != nil {
 		log.Printf("FAILED to send message: %s\n", err)
@@ -48,5 +61,6 @@ func ProduceMessage(brokerCfg broker.Configuration, message string) (partition i
 		log.Printf("message sent to partition %d at offset %d\n", partition, offset)
 		metrics.ProducedMessages.Inc()
 	}
+
 	return partition, offset, err
 }
