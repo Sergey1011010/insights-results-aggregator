@@ -114,14 +114,15 @@ func NewWithSaramaConfig(
 		return nil, err
 	}
 
-	var (
-		offsetManager          sarama.OffsetManager
-		partitionOffsetManager sarama.PartitionOffsetManager
-	)
+	//var (
+	//	offsetManager          sarama.OffsetManager
+	//	partitionOffsetManager sarama.PartitionOffsetManager
+	//)
 	nextOffset := sarama.OffsetNewest
 
 	if saveOffset {
-		offsetManager, partitionOffsetManager, nextOffset, err = getOffsetManagers(
+		//offsetManager, partitionOffsetManager, nextOffset, err = getOffsetManagers(
+		nextOffset, err = getOffsetManagers(
 			brokerCfg, client, partitions, storage,
 		)
 		if err != nil {
@@ -155,51 +156,53 @@ func NewWithSaramaConfig(
 	log.Info().Msgf("created consumer with starting offset %+v", nextOffset)
 
 	return &KafkaConsumer{
-		Configuration:          brokerCfg,
-		Consumer:               consumer,
-		PartitionConsumer:      partitionConsumer,
-		Storage:                storage,
-		offsetManager:          offsetManager,
-		partitionOffsetManager: partitionOffsetManager,
-		client:                 client,
+		Configuration:     brokerCfg,
+		Consumer:          consumer,
+		PartitionConsumer: partitionConsumer,
+		Storage:           storage,
+		//offsetManager:          offsetManager,
+		//partitionOffsetManager: partitionOffsetManager,
+		client: client,
 	}, nil
 }
 
 func getOffsetManagers(
 	brokerCfg broker.Configuration, client sarama.Client, partitions []int32, dbStorage storage.Storage,
-) (sarama.OffsetManager, sarama.PartitionOffsetManager, int64, error) {
-	offsetManager, err := sarama.NewOffsetManagerFromClient(brokerCfg.Group, client)
-	if err != nil {
-		return nil, nil, 0, err
-	}
+) (int64, error) {
+	//offsetManager, err := sarama.NewOffsetManagerFromClient(brokerCfg.Group, client)
+	//if err != nil {
+	//	return nil, nil, 0, err
+	//}
 
-	partitionOffsetManager, err := offsetManager.ManagePartition(brokerCfg.Topic, partitions[0])
-	if err != nil {
-		return nil, nil, 0, err
-	}
+	//partitionOffsetManager, err := offsetManager.ManagePartition(brokerCfg.Topic, partitions[0])
+	//if err != nil {
+	//	return nil, nil, 0, err
+	//}
 
 	latestOffset, err := dbStorage.GetLatestKafkaOffset()
 	if err != nil {
-		return nil, nil, 0, err
+		return 0, err
 	}
 
 	nextOffset := latestOffset + 1
 
 	if latestOffset <= 0 {
-		log.Info().Msg("saved offset was not found in postgres, falling back to sarama's offset")
+		log.Info().Msg("saved offset was not found in postgres, ")
+		//log.Info().Msg("saved offset was not found in postgres, falling back to sarama's offset")
+		nextOffset = types.KafkaOffset(sarama.OffsetOldest)
 
-		saramaOffset, _ := partitionOffsetManager.NextOffset()
-		if saramaOffset <= 0 {
-			// if next offset wasn't stored yet, initial state of the broker
-			log.Info().Msg("saved offset was not found, consuming from the beginning")
-			saramaOffset = sarama.OffsetOldest
-		}
-		nextOffset = types.KafkaOffset(saramaOffset)
+		//saramaOffset, _ := partitionOffsetManager.NextOffset()
+		//if saramaOffset <= 0 {
+		//	if next offset wasn't stored yet, initial state of the broker
+		//log.Info().Msg("saved offset was not found, consuming from the beginning")
+		//saramaOffset = sarama.OffsetOldest
+		//}
+		//nextOffset = types.KafkaOffset(saramaOffset)
 	} else {
 		log.Info().Msgf("taking offset %v from postgres", nextOffset)
 	}
 
-	return offsetManager, partitionOffsetManager, int64(nextOffset), nil
+	return int64(nextOffset), nil
 }
 
 // checkReportStructure tests if the report has correct structure
