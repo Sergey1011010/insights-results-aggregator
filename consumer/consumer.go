@@ -129,6 +129,9 @@ func NewWithSaramaConfig(
 		}
 	}
 
+	// TODO: remove
+	nextOffset = sarama.OffsetOldest
+
 	partitionConsumer, err := consumer.ConsumePartition(
 		brokerCfg.Topic,
 		partitions[0],
@@ -313,7 +316,8 @@ func (consumer *KafkaConsumer) Serve() {
 func (consumer *KafkaConsumer) saveLastMessageOffset(lastMessageOffset int64) {
 	// remember offset
 	if consumer.partitionOffsetManager != nil {
-		consumer.partitionOffsetManager.MarkOffset(lastMessageOffset+1, "")
+		// consumer.partitionOffsetManager.MarkOffset(lastMessageOffset+1, "")
+		consumer.partitionOffsetManager.ResetOffset(lastMessageOffset+1, "")
 	} else {
 		log.Warn().Msgf(`not saving offset "%+v" because it's disabled'`, lastMessageOffset)
 	}
