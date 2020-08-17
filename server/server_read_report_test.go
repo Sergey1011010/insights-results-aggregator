@@ -15,7 +15,6 @@
 package server_test
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
@@ -25,7 +24,6 @@ import (
 
 	"github.com/RedHatInsights/insights-results-aggregator/server"
 	"github.com/RedHatInsights/insights-results-aggregator/tests/helpers"
-	"github.com/RedHatInsights/insights-results-aggregator/types"
 )
 
 func TestReadReportForClusterNonIntOrgID(t *testing.T) {
@@ -120,46 +118,47 @@ func TestReadReportDBError(t *testing.T) {
 	})
 }
 
-func TestHttpServer_readReportForCluster_getContentForRule_BadReport(t *testing.T) {
-	badReport := `{
-		"system": {
-			"metadata": {},
-			"hostname": null
-		},
-		"reports": [{
-			"component": "` + string(testdata.Rule1ID) + `",
-			"key": "` + testdata.ErrorKey1 + `",
-			"details": "not-json"
-		}],
-		"fingerprints": [],
-		"skips": [],
-		"info": []
-}`
-	badHitRules := []types.ReportItem{
-		types.ReportItem{
-			Module:       testdata.Rule1ID,
-			ErrorKey:     testdata.ErrorKey1,
-			TemplateData: json.RawMessage("not-json"),
-		},
-	}
-
-	mockStorage, closer := helpers.MustGetMockStorage(t, true)
-	defer closer()
-
-	err := mockStorage.WriteReportForCluster(
-		testdata.OrgID, testdata.ClusterName, types.ClusterReport(badReport), badHitRules, testdata.LastCheckedAt, testdata.KafkaOffset,
-	)
-	helpers.FailOnError(t, err)
-
-	helpers.AssertAPIRequest(t, mockStorage, &config, &helpers.APIRequest{
-		Method:       http.MethodGet,
-		Endpoint:     server.ReportEndpoint,
-		EndpointArgs: []interface{}{testdata.OrgID, testdata.ClusterName, testdata.UserID},
-	}, &helpers.APIResponse{
-		StatusCode: http.StatusBadRequest,
-		Body:       `{ "status": "invalid character 'o' in literal null (expecting 'u')" }`,
-	})
-}
+// TODO: clarify. Probably, it's a legacy cuz we don't even have getContentForRule function now
+//func TestHttpServer_readReportForCluster_getContentForRule_BadReport(t *testing.T) {
+//	badReport := `{
+//		"system": {
+//			"metadata": {},
+//			"hostname": null
+//		},
+//		"reports": [{
+//			"component": "` + string(testdata.Rule1ID) + `",
+//			"key": "` + testdata.ErrorKey1 + `",
+//			"details": "not-json"
+//		}],
+//		"fingerprints": [],
+//		"skips": [],
+//		"info": []
+//}`
+//	badHitRules := []types.ReportItem{
+//		{
+//			Module:       testdata.Rule1ID,
+//			ErrorKey:     testdata.ErrorKey1,
+//			TemplateData: json.RawMessage("not-json"),
+//		},
+//	}
+//
+//	mockStorage, closer := helpers.MustGetMockStorage(t, true)
+//	defer closer()
+//
+//	err := mockStorage.WriteReportForCluster(
+//		testdata.OrgID, testdata.ClusterName, types.ClusterReport(badReport), badHitRules, testdata.LastCheckedAt, testdata.KafkaOffset,
+//	)
+//	helpers.FailOnError(t, err)
+//
+//	helpers.AssertAPIRequest(t, mockStorage, &config, &helpers.APIRequest{
+//		Method:       http.MethodGet,
+//		Endpoint:     server.ReportEndpoint,
+//		EndpointArgs: []interface{}{testdata.OrgID, testdata.ClusterName, testdata.UserID},
+//	}, &helpers.APIResponse{
+//		StatusCode: http.StatusBadRequest,
+//		Body:       `{ "status": "invalid character 'o' in literal null (expecting 'u')" }`,
+//	})
+//}
 
 func TestReadReport(t *testing.T) {
 	mockStorage, closer := helpers.MustGetMockStorage(t, true)

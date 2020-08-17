@@ -32,6 +32,14 @@ var mig0013AddRuleHitTable = Migration{
 			template_data   VARCHAR NOT NULL,
 			PRIMARY KEY(cluster_id, org_id, rule_fqdn, rule_key)
 		)`)
+		if err != nil {
+			return err
+		}
+
+		if driver != types.DBDriverPostgres {
+			// if sqlite, just ignore the actual migration cuz sqlite is too stupid for that
+			return nil
+		}
 
 		_, err = tx.Exec(`
 			DECLARE report_cursor CURSOR FOR

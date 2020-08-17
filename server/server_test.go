@@ -334,7 +334,7 @@ func TestRuleFeedbackVote_DBError(t *testing.T) {
 
 	expects.ExpectQuery("SELECT .* FROM report").
 		WillReturnRows(
-			sqlmock.NewRows([]string{"last_checked_at"}).AddRow(time.Now()),
+			sqlmock.NewRows([]string{"cluster"}).AddRow(testdata.ClusterName),
 		)
 
 	expects.ExpectPrepare("INSERT INTO").

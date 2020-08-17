@@ -308,6 +308,11 @@ func TestMigration13(t *testing.T) {
 	db, dbDriver, closer := prepareDBAndInfo(t)
 	defer closer()
 
+	if dbDriver == types.DBDriverSQLite3 {
+		// migration is not implemented for sqlite
+		return
+	}
+
 	err := migration.SetDBVersion(db, dbDriver, 12)
 	helpers.FailOnError(t, err)
 

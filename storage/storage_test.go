@@ -55,14 +55,14 @@ func checkReportForCluster(
 	s storage.Storage,
 	orgID types.OrgID,
 	clusterName types.ClusterName,
-	expected types.ClusterReport,
+	expected []types.RuleOnReport,
 ) {
 	// try to read report for cluster
 	result, _, err := s.ReadReportForCluster(orgID, clusterName)
 	helpers.FailOnError(t, err)
 
 	// and check the read report with expected one
-	assert.Equal(t, expected, result)
+	assert.ElementsMatch(t, expected, result)
 }
 
 func writeReportForCluster(
@@ -134,7 +134,8 @@ func TestDBStorageReadReportForCluster(t *testing.T) {
 	defer closer()
 
 	writeReportForCluster(t, mockStorage, testdata.OrgID, testdata.ClusterName, `{"report":{}}`, testdata.ReportEmptyRulesParsed)
-	checkReportForCluster(t, mockStorage, testdata.OrgID, testdata.ClusterName, `{"report":{}}`)
+	checkReportForCluster(t, mockStorage, testdata.OrgID, testdata.ClusterName, nil)
+
 }
 
 // TestDBStorageGetOrgIDByClusterID check the behaviour of method GetOrgIDByClusterID
@@ -270,7 +271,7 @@ func TestDBStorageWriteReportForClusterExecError(t *testing.T) {
 			last_checked_at TIMESTAMP,
 			kafka_offset BIGINT NOT NULL DEFAULT 0,
 			PRIMARY KEY(org_id, cluster)
-		)
+		);
 	`
 
 	if os.Getenv("INSIGHTS_RESULTS_AGGREGATOR__TESTS_DB") == "postgres" {
@@ -293,12 +294,12 @@ func TestDBStorageWriteReportForClusterExecError(t *testing.T) {
 
 	query = `
 		CREATE TABLE rule_hit (
-			org_id          INTEGER NOT NULL,
+			org_id			INTEGER NOT NULL,
 			cluster_id      VARCHAR NOT NULL,
-			rule_id         VARCHAR NOT NULL,
-			error_key       VARCHAR NOT NULL,
-			report          VARCHAR NOT NULL,
-			PRIMARY KEY(cluster_id, org_id, rule_id, error_key)
+			rule_fqdn 		VARCHAR NOT NULL,
+			rule_key        VARCHAR NOT NULL,
+			template_data   VARCHAR NOT NULL,
+			PRIMARY KEY(cluster_id, org_id, rule_fqdn, rule_key)
 		)
 	`
 
@@ -310,6 +311,7 @@ func TestDBStorageWriteReportForClusterExecError(t *testing.T) {
 		testdata.OrgID, testdata.ClusterName, testdata.Report3Rules, testdata.Report3RulesParsed, testdata.LastCheckedAt, testdata.KafkaOffset,
 	)
 	assert.Error(t, err)
+
 	const sqliteErrMessage = "CHECK constraint failed: report"
 	const postgresErrMessage = "pq: invalid input syntax for integer"
 	if err.Error() != sqliteErrMessage && !strings.HasPrefix(err.Error(), postgresErrMessage) {
@@ -582,7 +584,7 @@ func TestDBStorage_ReadReportForClusterByClusterName_OK(t *testing.T) {
 	report, lastCheckedAt, err := mockStorage.ReadReportForClusterByClusterName(testdata.ClusterName)
 	helpers.FailOnError(t, err)
 
-	assert.Equal(t, testdata.Report3Rules, report)
+	assert.Equal(t, testdata.RuleOnReportResponses, report)
 	assert.Equal(t, types.Timestamp(testdata.LastCheckedAt.UTC().Format(time.RFC3339)), lastCheckedAt)
 }
 
@@ -686,7 +688,12 @@ func TestDBStorage_GetLatestKafkaOffset_ZeroOffset(t *testing.T) {
 	assert.Equal(t, types.KafkaOffset(0), offset)
 
 	err = mockStorage.WriteReportForCluster(
-		testdata.OrgID, testdata.ClusterName, testdata.Report3Rules, testdata.Report3RulesParsed, testdata.LastCheckedAt, types.KafkaOffset(0),
+		testdata.OrgID,
+		testdata.ClusterName,
+		testdata.Report3Rules,
+		testdata.Report3RulesParsed,
+		testdata.LastCheckedAt,
+		types.KafkaOffset(0),
 	)
 	helpers.FailOnError(t, err)
 

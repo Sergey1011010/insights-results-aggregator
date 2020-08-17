@@ -51,8 +51,8 @@ func (*NoopStorage) ReadReportForCluster(types.OrgID, types.ClusterName) ([]type
 	return []types.RuleOnReport{}, "", nil
 }
 
-// SingleRuleEndpoint noop
-func (*NoopStorage) SingleRuleEndpoint(types.OrgID, types.ClusterName, types.RuleID, types.ErrorKey) (string, error) {
+// ReadSingleRule noop
+func (*NoopStorage) ReadSingleRule(types.OrgID, types.ClusterName, types.RuleID, types.ErrorKey) (string, error) {
 	return "", nil
 }
 
@@ -209,4 +209,9 @@ func (*NoopStorage) GetRuleWithContent(
 	types.RuleID, types.ErrorKey,
 ) (*types.RuleWithContent, error) {
 	return nil, nil
+}
+
+// DoesClusterExist noop
+func (*NoopStorage) DoesClusterExist(types.ClusterName) (bool, error) {
+	return false, nil
 }

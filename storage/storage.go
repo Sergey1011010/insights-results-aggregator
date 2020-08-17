@@ -123,6 +123,7 @@ type Storage interface {
 		rulesReport []types.RuleOnReport,
 		userID types.UserID,
 	) (map[types.RuleID]types.UserVote, error)
+	DoesClusterExist(clusterID types.ClusterName) (bool, error)
 }
 
 // DBStorage is an implementation of Storage interface that use selected SQL like database
@@ -234,13 +235,6 @@ func (storage DBStorage) Init() error {
 		}
 
 		storage.clustersLastChecked[clusterName] = lastChecked
-	}
-
-	if storage.dbDriverType == types.DBDriverSQLite3 {
-		_, err = storage.connection.Exec("PRAGMA foreign_keys = OFF;")
-		if err != nil {
-			return err
-		}
 	}
 
 	// Not using defer to close the rows here to:
@@ -394,7 +388,7 @@ func (storage DBStorage) ReadReportForCluster(
 	return report, types.Timestamp(lastChecked.UTC().Format(time.RFC3339)), err
 }
 
-// ReadRuleForReport reads rule result (health status) for selected cluster
+// ReadSingleRule reads rule result (health status) for selected cluster
 func (storage DBStorage) ReadSingleRule(
 	orgID types.OrgID, clusterName types.ClusterName, ruleID types.RuleID, errorKey types.ErrorKey,
 ) (string, error) {
@@ -472,27 +466,25 @@ func (storage DBStorage) getReportUpsertQuery() string {
 	case types.DBDriverSQLite3:
 		return `INSERT OR REPLACE INTO report(org_id, cluster, report, reported_at, last_checked_at, kafka_offset)
 		 VALUES ($1, $2, $3, $4, $5, $6)`
-	case types.DBDriverPostgres:
-		return `INSERT INTO rule(org_id, cluster, report, reported_at, last_checked_at, kafka_offset)
+	default:
+		return `INSERT INTO report(org_id, cluster, report, reported_at, last_checked_at, kafka_offset)
 		 VALUES ($1, $2, $3, $4, $5, $6)
 		 ON CONFLICT (org_id, cluster)
 		 DO UPDATE SET report = $3, reported_at = $4, last_checked_at = $5, kafka_offset = $6`
 	}
-	return ""
 }
 
-func (storage DBStorage) getRuleUpsertQuery() string {
+func (storage DBStorage) getRuleHitUpsertQuery() string {
 	switch storage.dbDriverType {
 	case types.DBDriverSQLite3:
-		return `INSERT OR REPLACE INTO rule_hit(org_id, cluster_id, rule_id, error_key, report)
+		return `INSERT OR REPLACE INTO rule_hit(org_id, cluster_id, rule_fqdn, rule_key, template_data)
 		 VALUES ($1, $2, $3, $4, $5)`
-	case types.DBDriverPostgres:
-		return `INSERT INTO rule_hit(org_id, cluster_id, rule_id, error_key, report)
+	default:
+		return `INSERT INTO rule_hit(org_id, cluster_id, rule_fqdn, rule_key, template_data)
 		 VALUES ($1, $2, $3, $4, $5)
-		 ON CONFLICT (org_id, cluster, rule_id, error_key)
-		 DO UPDATE SET report = $4`
+		 ON CONFLICT (org_id, cluster_id, rule_fqdn, rule_key)
+		 DO UPDATE SET template_data = $4`
 	}
-	return ""
 }
 
 func (storage DBStorage) updateReport(
@@ -504,18 +496,16 @@ func (storage DBStorage) updateReport(
 	lastCheckedTime time.Time,
 	kafkaOffset types.KafkaOffset,
 ) error {
-
 	// Get the UPSERT query for writing a report into the database.
 	reportUpsertQuery := storage.getReportUpsertQuery()
 
 	// Get the UPSERT query for writing a rule into the database.
-	ruleUpsertQuery := storage.getRuleUpsertQuery()
+	ruleUpsertQuery := storage.getRuleHitUpsertQuery()
 
 	deleteQuery := "DELETE FROM rule_hit WHERE org_id = $1 AND cluster_id = $2;"
 	_, err := tx.Exec(deleteQuery, orgID, clusterName)
 	if err != nil {
 		log.Err(err).Msgf("Unable to remove previous cluster reports (org: %v, cluster: %v)", orgID, clusterName)
-		_ = tx.Rollback()
 		return err
 	}
 
@@ -526,7 +516,6 @@ func (storage DBStorage) updateReport(
 		_, err = tx.Exec(ruleUpsertQuery, orgID, clusterName, rule.Module, rule.ErrorKey, string(rule.TemplateData))
 		if err != nil {
 			log.Err(err).Msgf("Unable to upsert the cluster report (org: %v, cluster: %v)", orgID, clusterName)
-			_ = tx.Rollback()
 			return err
 		}
 	}
@@ -534,9 +523,9 @@ func (storage DBStorage) updateReport(
 	_, err = tx.Exec(reportUpsertQuery, orgID, clusterName, report, reportedAtTime, lastCheckedTime, kafkaOffset)
 	if err != nil {
 		log.Err(err).Msgf("Unable to upsert the cluster report (org: %v, cluster: %v)", orgID, clusterName)
-		_ = tx.Rollback()
 		return err
 	}
+
 	return nil
 }
 
@@ -565,32 +554,56 @@ func (storage DBStorage) WriteReportForCluster(
 		return err
 	}
 
-	// Check if there is a more recent report for the cluster already in the database.
-	rows, err := storage.connection.Query(
-		"SELECT last_checked_at FROM report WHERE org_id = $1 AND cluster = $2 AND last_checked_at > $3;",
-		orgID, clusterName, lastCheckedTime)
-	err = types.ConvertDBError(err, []interface{}{orgID, clusterName})
-	if err != nil {
-		log.Error().Err(err).Msg("Unable to look up the most recent report in database")
-		return err
-	}
-	defer closeRows(rows)
+	err = func(tx *sql.Tx) error {
 
-	// If there is one, print a warning and discard the report (don't update it).
-	if rows.Next() {
-		log.Warn().Msgf("Database already contains report for organization %d and cluster name %s more recent than %v",
+		// Check if there is a more recent report for the cluster already in the database.
+		rows, err := tx.Query(
+			"SELECT last_checked_at FROM report WHERE org_id = $1 AND cluster = $2 AND last_checked_at > $3;",
 			orgID, clusterName, lastCheckedTime)
+		err = types.ConvertDBError(err, []interface{}{orgID, clusterName})
+		if err != nil {
+			log.Error().Err(err).Msg("Unable to look up the most recent report in the database")
+			return err
+		}
+
+		defer closeRows(rows)
+
+		// If there is one, print a warning and discard the report (don't update it).
+		if rows.Next() {
+			log.Warn().Msgf("Database already contains report for organization %d and cluster name %s more recent than %v",
+				orgID, clusterName, lastCheckedTime)
+			return nil
+		}
+
+		err = storage.updateReport(tx, orgID, clusterName, report, rules, lastCheckedTime, kafkaOffset)
+		if err != nil {
+			return err
+		}
+
+		storage.clustersLastChecked[clusterName] = lastCheckedTime
+		metrics.WrittenReports.Inc()
+
 		return nil
-	}
+	}(tx)
 
-	err = storage.updateReport(tx, orgID, clusterName, report, rules, lastCheckedTime, kafkaOffset)
+	finishTransaction(tx, err)
+
+	return err
+}
+
+// finishTransaction finishes the transaction depending on err. err == nil -> commit, err != nil -> rollback
+func finishTransaction(tx *sql.Tx, err error) {
 	if err != nil {
-		return err
+		rollbackError := tx.Rollback()
+		if rollbackError != nil {
+			log.Err(rollbackError).Msgf("error when trying to rollback a transaction")
+		}
+	} else {
+		commitError := tx.Commit()
+		if commitError != nil {
+			log.Err(commitError).Msgf("error when trying to commit a transaction")
+		}
 	}
-
-	storage.clustersLastChecked[clusterName] = lastCheckedTime
-	metrics.WrittenReports.Inc()
-	return nil
 }
 
 // ReportsCount reads number of all records stored in database
@@ -632,4 +645,18 @@ func (storage DBStorage) WriteConsumerError(msg *sarama.ConsumerMessage, consume
 // GetDBDriverType returns db driver type
 func (storage DBStorage) GetDBDriverType() types.DBDriver {
 	return storage.dbDriverType
+}
+
+// DoesClusterExist checks if cluster with this id exists
+func (storage DBStorage) DoesClusterExist(clusterID types.ClusterName) (bool, error) {
+	err := storage.connection.QueryRow(
+		"SELECT cluster FROM report WHERE cluster = $1", clusterID,
+	).Scan(&clusterID)
+	if err == sql.ErrNoRows {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
