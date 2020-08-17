@@ -29,7 +29,6 @@ package storage
 import (
 	"database/sql"
 	sql_driver "database/sql/driver"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -52,8 +51,12 @@ type Storage interface {
 	Close() error
 	ListOfOrgs() ([]types.OrgID, error)
 	ListOfClustersForOrg(orgID types.OrgID) ([]types.ClusterName, error)
-	ReadReportForCluster(orgID types.OrgID, clusterName types.ClusterName) ([]types.RuleOnReport, types.Timestamp, error)
-	ReadRuleForReport(orgID types.OrgID, clusterName types.ClusterName, ruleID types.RuleID, errorKey types.ErrorKey) (types.ClusterReport, error)
+	ReadReportForCluster(
+		orgID types.OrgID, clusterName types.ClusterName) ([]types.RuleOnReport, types.Timestamp, error,
+	)
+	ReadSingleRule(
+		orgID types.OrgID, clusterName types.ClusterName, ruleID types.RuleID, errorKey types.ErrorKey,
+	) (string, error)
 	ReadReportForClusterByClusterName(clusterName types.ClusterName) ([]types.RuleOnReport, types.Timestamp, error)
 	GetLatestKafkaOffset() (types.KafkaOffset, error)
 	WriteReportForCluster(
@@ -337,25 +340,24 @@ func (storage DBStorage) GetOrgIDByClusterID(cluster types.ClusterName) (types.O
 
 func parseRuleRows(rows *sql.Rows) ([]types.RuleOnReport, error) {
 	report := make([]types.RuleOnReport, 0)
+
 	for rows.Next() {
-		var details string
-		var ruleID string
-		err := rows.Scan(&details, &ruleID)
+		var (
+			templateData string
+			ruleFQDN     types.RuleID
+			ruleKey      types.ErrorKey
+		)
+
+		err := rows.Scan(&templateData, &ruleFQDN, &ruleKey)
 		if err != nil {
 			log.Error().Err(err).Msg("ReportListForCluster")
 			return report, err
 		}
-		var ruleDetails json.RawMessage
-		err = json.Unmarshal([]byte(details), &ruleDetails)
-		if err != nil {
-			log.Error().Err(err).Msg("Unable to parse cluster rule report")
-			return report, err
-		}
-		splitedRuleID := strings.Split(ruleID, "|")
+
 		rule := types.RuleOnReport{
-			Module:       types.RuleID(splitedRuleID[0]),
-			ErrorKey:     types.ErrorKey(splitedRuleID[1]),
-			TemplateData: string(ruleDetails),
+			Module:       ruleFQDN,
+			ErrorKey:     ruleKey,
+			TemplateData: templateData,
 		}
 		report = append(report, rule)
 	}
@@ -379,7 +381,7 @@ func (storage DBStorage) ReadReportForCluster(
 	}
 
 	rows, err := storage.connection.Query(
-		"SELECT report, rule_id FROM rule WHERE org_id = $1 AND cluster_id = $2;", orgID, clusterName,
+		"SELECT template_data, rule_fqdn, rule_key FROM rule_hit WHERE org_id = $1 AND cluster_id = $2;", orgID, clusterName,
 	)
 
 	err = types.ConvertDBError(err, []interface{}{orgID, clusterName})
@@ -393,17 +395,23 @@ func (storage DBStorage) ReadReportForCluster(
 }
 
 // ReadRuleForReport reads rule result (health status) for selected cluster
-func (storage DBStorage) ReadRuleForReport(
+func (storage DBStorage) ReadSingleRule(
 	orgID types.OrgID, clusterName types.ClusterName, ruleID types.RuleID, errorKey types.ErrorKey,
-) (types.ClusterReport, error) {
-	var report string
+) (string, error) {
+	var templateData string
 
-	err := storage.connection.QueryRow(
-		"SELECT report FROM rule_hit WHERE org_id = $1 AND cluster_id = $2 AND rule_id=$3 AND error_key=$4;", orgID, clusterName, ruleID, errorKey,
-	).Scan(&report)
-	err = types.ConvertDBError(err, []interface{}{orgID, clusterName})
+	err := storage.connection.QueryRow(`
+		SELECT template_data FROM rule_hit
+		WHERE org_id = $1 AND cluster_id = $2 AND rule_fqdn = $3 AND rule_key = $4;
+	`,
+		orgID,
+		clusterName,
+		ruleID,
+		errorKey,
+	).Scan(&templateData)
+	err = types.ConvertDBError(err, []interface{}{orgID, clusterName, ruleID, errorKey})
 
-	return types.ClusterReport(report), err
+	return templateData, err
 }
 
 // ReadReportForClusterByClusterName reads result (health status) for selected cluster for given organization
@@ -427,7 +435,7 @@ func (storage DBStorage) ReadReportForClusterByClusterName(
 	}
 
 	rows, err := storage.connection.Query(
-		"SELECT report, rule_id FROM rule_hit WHERE cluster_id = $1;", clusterName,
+		"SELECT template_data, rule_fqdn, rule_key FROM rule_hit WHERE cluster_id = $1;", clusterName,
 	)
 
 	if err != nil {
