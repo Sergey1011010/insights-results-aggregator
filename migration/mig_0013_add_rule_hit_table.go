@@ -28,9 +28,9 @@ var mig0013AddRuleHitTable = Migration{
 			org_id          INTEGER NOT NULL,
 			cluster_id      VARCHAR NOT NULL,
 			rule_fqdn       VARCHAR NOT NULL,
-			rule_key       	VARCHAR NOT NULL,
+			error_key		VARCHAR NOT NULL,
 			template_data   VARCHAR NOT NULL,
-			PRIMARY KEY(cluster_id, org_id, rule_fqdn, rule_key)
+			PRIMARY KEY(cluster_id, org_id, rule_fqdn, error_key)
 		)`)
 		if err != nil {
 			return err
@@ -113,7 +113,7 @@ func writeRulesFromReportToRuleHit(
 
 		_, err = tx.Exec(`
 			INSERT INTO rule_hit (
-				org_id, cluster_id, rule_fqdn, rule_key, template_data
+				org_id, cluster_id, rule_fqdn, error_key, template_data
 			) VALUES ($1, $2, $3, $4, $5)
 		`, orgID, clusterID, rule.Module, rule.ErrorKey, string(templateData))
 		if err != nil {

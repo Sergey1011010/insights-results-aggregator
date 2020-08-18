@@ -201,7 +201,7 @@ func TestReadRuleReport(t *testing.T) {
 
 	helpers.AssertAPIRequest(t, mockStorage, &config, &helpers.APIRequest{
 		Method:   http.MethodGet,
-		Endpoint: server.SingleRuleEndpoint,
+		Endpoint: server.RuleEndpoint,
 		EndpointArgs: []interface{}{
 			testdata.OrgID,
 			testdata.ClusterName,

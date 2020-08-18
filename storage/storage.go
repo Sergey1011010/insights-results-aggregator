@@ -339,10 +339,10 @@ func parseRuleRows(rows *sql.Rows) ([]types.RuleOnReport, error) {
 		var (
 			templateData string
 			ruleFQDN     types.RuleID
-			ruleKey      types.ErrorKey
+			errorKey     types.ErrorKey
 		)
 
-		err := rows.Scan(&templateData, &ruleFQDN, &ruleKey)
+		err := rows.Scan(&templateData, &ruleFQDN, &errorKey)
 		if err != nil {
 			log.Error().Err(err).Msg("ReportListForCluster")
 			return report, err
@@ -350,7 +350,7 @@ func parseRuleRows(rows *sql.Rows) ([]types.RuleOnReport, error) {
 
 		rule := types.RuleOnReport{
 			Module:       ruleFQDN,
-			ErrorKey:     ruleKey,
+			ErrorKey:     errorKey,
 			TemplateData: templateData,
 		}
 		report = append(report, rule)
@@ -375,7 +375,7 @@ func (storage DBStorage) ReadReportForCluster(
 	}
 
 	rows, err := storage.connection.Query(
-		"SELECT template_data, rule_fqdn, rule_key FROM rule_hit WHERE org_id = $1 AND cluster_id = $2;", orgID, clusterName,
+		"SELECT template_data, rule_fqdn, error_key FROM rule_hit WHERE org_id = $1 AND cluster_id = $2;", orgID, clusterName,
 	)
 
 	err = types.ConvertDBError(err, []interface{}{orgID, clusterName})
@@ -396,7 +396,7 @@ func (storage DBStorage) ReadSingleRule(
 
 	err := storage.connection.QueryRow(`
 		SELECT template_data FROM rule_hit
-		WHERE org_id = $1 AND cluster_id = $2 AND rule_fqdn = $3 AND rule_key = $4;
+		WHERE org_id = $1 AND cluster_id = $2 AND rule_fqdn = $3 AND error_key = $4;
 	`,
 		orgID,
 		clusterName,
@@ -429,7 +429,7 @@ func (storage DBStorage) ReadReportForClusterByClusterName(
 	}
 
 	rows, err := storage.connection.Query(
-		"SELECT template_data, rule_fqdn, rule_key FROM rule_hit WHERE cluster_id = $1;", clusterName,
+		"SELECT template_data, rule_fqdn, error_key FROM rule_hit WHERE cluster_id = $1;", clusterName,
 	)
 
 	if err != nil {
@@ -462,29 +462,35 @@ func commaSeparatedStrToTags(str string) []string {
 }
 
 func (storage DBStorage) getReportUpsertQuery() string {
-	switch storage.dbDriverType {
-	case types.DBDriverSQLite3:
-		return `INSERT OR REPLACE INTO report(org_id, cluster, report, reported_at, last_checked_at, kafka_offset)
-		 VALUES ($1, $2, $3, $4, $5, $6)`
-	default:
-		return `INSERT INTO report(org_id, cluster, report, reported_at, last_checked_at, kafka_offset)
-		 VALUES ($1, $2, $3, $4, $5, $6)
-		 ON CONFLICT (org_id, cluster)
-		 DO UPDATE SET report = $3, reported_at = $4, last_checked_at = $5, kafka_offset = $6`
+	if storage.dbDriverType == types.DBDriverSQLite3 {
+		return `
+			INSERT OR REPLACE INTO report(org_id, cluster, report, reported_at, last_checked_at, kafka_offset)
+			VALUES ($1, $2, $3, $4, $5, $6)
+		`
 	}
+
+	return `
+		INSERT INTO report(org_id, cluster, report, reported_at, last_checked_at, kafka_offset)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (org_id, cluster)
+		DO UPDATE SET report = $3, reported_at = $4, last_checked_at = $5, kafka_offset = $6
+	`
 }
 
 func (storage DBStorage) getRuleHitUpsertQuery() string {
-	switch storage.dbDriverType {
-	case types.DBDriverSQLite3:
-		return `INSERT OR REPLACE INTO rule_hit(org_id, cluster_id, rule_fqdn, rule_key, template_data)
-		 VALUES ($1, $2, $3, $4, $5)`
-	default:
-		return `INSERT INTO rule_hit(org_id, cluster_id, rule_fqdn, rule_key, template_data)
-		 VALUES ($1, $2, $3, $4, $5)
-		 ON CONFLICT (org_id, cluster_id, rule_fqdn, rule_key)
-		 DO UPDATE SET template_data = $4`
+	if storage.dbDriverType == types.DBDriverSQLite3 {
+		return `
+			INSERT OR REPLACE INTO rule_hit(org_id, cluster_id, rule_fqdn, error_key, template_data)
+			VALUES ($1, $2, $3, $4, $5)
+		`
 	}
+
+	return `
+		INSERT INTO rule_hit(org_id, cluster_id, rule_fqdn, error_key, template_data)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (org_id, cluster_id, rule_fqdn, error_key)
+		DO UPDATE SET template_data = $4
+	`
 }
 
 func (storage DBStorage) updateReport(

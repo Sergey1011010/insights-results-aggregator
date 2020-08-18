@@ -176,8 +176,8 @@ func (server *HTTPServer) readReportForCluster(writer http.ResponseWriter, reque
 	}
 }
 
-// readRuleForReport return rule by cluster ID, org ID and rule ID
-func (server *HTTPServer) singleRuleEndpoint(writer http.ResponseWriter, request *http.Request) {
+// readSingleRule returns a rule by cluster ID, org ID and rule ID
+func (server *HTTPServer) readSingleRule(writer http.ResponseWriter, request *http.Request) {
 	clusterName, successful := readClusterName(writer, request)
 	if !successful {
 		// everything has been handled already

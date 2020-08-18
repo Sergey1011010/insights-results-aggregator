@@ -331,7 +331,7 @@ func TestMigration13(t *testing.T) {
 	err = migration.SetDBVersion(db, dbDriver, 13)
 	helpers.FailOnError(t, err)
 
-	assertRule := func(ruleFQDN types.RuleID, ruleKey types.ErrorKey, expectedTemplateData string) {
+	assertRule := func(ruleFQDN types.RuleID, errorKey types.ErrorKey, expectedTemplateData string) {
 		var (
 			templateData string
 		)
@@ -343,12 +343,12 @@ func TestMigration13(t *testing.T) {
 				rule_hit
 			WHERE
 				org_id = $1 AND cluster_id = $2 AND
-				rule_fqdn = $3 AND rule_key = $4
+				rule_fqdn = $3 AND error_key = $4
 		`,
 			testdata.OrgID,
 			testdata.ClusterName,
 			ruleFQDN,
-			ruleKey,
+			errorKey,
 		).Scan(
 			&templateData,
 		)
