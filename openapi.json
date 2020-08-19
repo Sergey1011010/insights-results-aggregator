@@ -266,7 +266,7 @@
         ]
       }
     },
-    "/organizations/{orgId}/clusters/{clusterId}/users/{userId}/rules/{ruleId}/report": {
+    "/organizations/{orgId}/clusters/{clusterId}/users/{userId}/rules/{ruleId}": {
       "get": {
         "summary": "Returns the latest rule report for the given organization, cluster, user and rule ids",
         "operationId": "getSingleRule",
