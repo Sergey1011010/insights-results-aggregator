@@ -34,7 +34,7 @@ const (
 	// ReportEndpoint returns report for provided {organization}
 	ReportEndpoint = "organizations/{org_id}/clusters/{cluster}/users/{user_id}/report"
 	// RuleEndpoint returns rule report for provided {organization} {cluster} and {rule_id}
-	RuleEndpoint = "organizations/{org_id}/clusters/{cluster}/users/{user_id}/rules/{rule_id}/report"
+	RuleEndpoint = "organizations/{org_id}/clusters/{cluster}/users/{user_id}/rules/{rule_id}"
 	// LikeRuleEndpoint likes rule with {rule_id} for {cluster} using current user(from auth header)
 	LikeRuleEndpoint = "clusters/{cluster}/rules/{rule_id}/users/{user_id}/like"
 	// DislikeRuleEndpoint dislikes rule with {rule_id} for {cluster} using current user(from auth header)
